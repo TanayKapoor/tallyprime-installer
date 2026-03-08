@@ -59,7 +59,7 @@ function Prompt-Input {
 function Prompt-YesNo {
     param([string]$Label, [string]$Default = "Y")
     $hint = if ($Default -eq "Y") { "[Y/n]" } else { "[y/N]" }
-    Write-Host "  → $Label $hint: " -ForegroundColor White -NoNewline
+    Write-Host "  → $Label ${hint}: " -ForegroundColor White -NoNewline
     $ans = Read-Host
     if (-not $ans) { $ans = $Default }
     return $ans -match "^[Yy]"
