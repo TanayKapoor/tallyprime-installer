@@ -86,23 +86,84 @@ function Check-Prerequisites {
 
     # ── Python ────────────────────────────────────────────────
     Write-Step "Checking Python..."
-    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-        Write-Fail "Python not found."
-        Write-Dim  "Download Python 3.11+ from: https://www.python.org/downloads/"
-        Write-Dim  "During install, check 'Add Python to PATH', then re-run this script."
-        Write-Blank
-        Read-Host  "  Press Enter to exit"
-        exit 1
+
+    function Install-Python {
+        # Try winget first (built into Windows 10 1709+ and Windows 11)
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Step "Installing Python 3.11 via winget..."
+            winget install --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -eq 0) {
+                # Refresh PATH so python is available in this session
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                            [System.Environment]::GetEnvironmentVariable("Path","User")
+                Write-OK "Python 3.11 installed via winget"
+                return $true
+            }
+        }
+
+        # Fallback: download the official installer silently
+        Write-Step "winget not available -- downloading Python 3.11 installer..."
+        $installer = Join-Path $env:TEMP "python-3.11.9-amd64.exe"
+        try {
+            Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" `
+                              -OutFile $installer -UseBasicParsing
+            Write-Step "Running Python installer (this may take a minute)..."
+            # /quiet = silent, PrependPath=1 = add to PATH automatically
+            Start-Process -FilePath $installer -ArgumentList "/quiet PrependPath=1 Include_pip=1" -Wait
+            Remove-Item $installer -Force
+            # Refresh PATH
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                        [System.Environment]::GetEnvironmentVariable("Path","User")
+            Write-OK "Python 3.11 installed"
+            return $true
+        } catch {
+            Write-Fail "Automatic Python installation failed: $_"
+            return $false
+        }
+    }
+
+    $pythonFound = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonFound) {
+        Write-Warn "Python not found."
+        $install = Prompt-YesNo "Install Python 3.11 automatically?" -Default "Y"
+        if ($install) {
+            $ok = Install-Python
+            if (-not $ok) {
+                Write-Dim  "Please install manually: https://www.python.org/downloads/"
+                Write-Dim  "During install, tick 'Add Python to PATH', then re-run this script."
+                Write-Blank
+                Read-Host  "  Press Enter to exit"
+                exit 1
+            }
+        } else {
+            Write-Dim  "Please install Python 3.11+ from: https://www.python.org/downloads/"
+            Write-Dim  "Tick 'Add Python to PATH' during install, then re-run this script."
+            Write-Blank
+            Read-Host  "  Press Enter to exit"
+            exit 1
+        }
     }
 
     $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
     $parts = $pyVer -split "\."
     if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 11)) {
-        Write-Fail "Python 3.11+ required -- found $pyVer."
-        Write-Dim  "Download from: https://www.python.org/downloads/"
-        Write-Blank
-        Read-Host  "  Press Enter to exit"
-        exit 1
+        Write-Warn "Python $pyVer is installed but 3.11+ is required."
+        $install = Prompt-YesNo "Install Python 3.11 alongside it?" -Default "Y"
+        if ($install) {
+            $ok = Install-Python
+            if (-not $ok) {
+                Write-Fail "Could not install Python 3.11 automatically."
+                Write-Dim  "Please install manually: https://www.python.org/downloads/"
+                Write-Blank
+                Read-Host  "  Press Enter to exit"
+                exit 1
+            }
+            # Re-check version after install
+            $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
+        } else {
+            Write-Fail "Python 3.11+ is required. Exiting."
+            exit 1
+        }
     }
     Write-OK "Python $pyVer"
 
